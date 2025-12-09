@@ -1,26 +1,32 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { ClsModule } from 'libs/modules/cls/cls.module';
+import { ConfigModule } from "libs/modules/config/config.module";
+import { ConfigService } from 'libs/modules/config/config.service';
+import { PrismaModule } from 'libs/modules/prisma/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { ChatModule } from './modules/chat/chat.module';
 
-import { AuthModule } from './auth/auth.module';
-import { ChatModule } from './chat/chat.module';
-import { KnowledgeModule } from './knowledge/knowledge.module';
-import { FeedbackModule } from './feedback/feedback.module';
-import { LogsModule } from './logs/logs.module';
-import typeormConfig from './config/typeorm.config';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env', '.env.local'] }),
-    TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: typeormConfig,
+    ClsModule,
+    ConfigModule.register({
+      envFilePath: './apps/core/.env',
+      provider: [ConfigService],
+      exports: [ConfigService],
+    }),
+    PrismaModule.forRootAsync({
+      isGlobal: true,
+      useFactory: () => {
+        return {
+          prismaOptions: {
+            log: ['error'],
+          },
+        };
+      },
     }),
     AuthModule,
     ChatModule,
-    KnowledgeModule,
-    FeedbackModule,
-    LogsModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }

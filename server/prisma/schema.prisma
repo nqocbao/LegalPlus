@@ -1,0 +1,277 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+////////////////////////////////////////////////
+// USERS
+////////////////////////////////////////////////
+
+model User {
+  id           Int     @id @default(autoincrement())
+  fullName     String? @map("full_name")
+  email        String  @unique
+  passwordHash String  @map("password_hash")
+  role         String
+
+  conversations         Conversation[]
+  messagesAsSender      Message[]              @relation("MessageSender")
+  legalSourcesUploaded  LegalSource[]          @relation("LegalSourcesUploadedBy")
+  adminLogs             AdminLog[]
+  queryLogs             QueryLog[]
+  messageFeedbacks      MessageFeedback[]
+  conversationFeedbacks ConversationFeedback[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@map("users")
+}
+
+////////////////////////////////////////////////
+// CONVERSATIONS
+////////////////////////////////////////////////
+
+model Conversation {
+  id            Int       @id @default(autoincrement())
+  userId        Int?      @map("user_id")
+  legalDomain   String?   @map("legal_domain")
+  title         String?
+  startedAt     DateTime  @default(now()) @map("started_at")
+  closedAt      DateTime? @map("closed_at")
+  status        String?
+  lastMessageAt DateTime? @map("last_message_at")
+
+  user      User?                  @relation(fields: [userId], references: [id])
+  messages  Message[]
+  queryLogs QueryLog[]
+  feedbacks ConversationFeedback[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([userId], map: "idx_conversations_user_id")
+  @@index([userId, startedAt], map: "idx_conversations_user_id_started_at")
+  @@map("conversations")
+}
+
+////////////////////////////////////////////////
+// MESSAGES
+////////////////////////////////////////////////
+
+model Message {
+  id             Int       @id @default(autoincrement())
+  conversationId Int       @map("conversation_id")
+  senderType     String    @map("sender_type")
+  senderId       Int?      @map("sender_id")
+  content        String
+  isUserVisible  Boolean   @default(true) @map("is_user_visible")
+  metadata       Json?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @default(now()) @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  conversation Conversation      @relation(fields: [conversationId], references: [id])
+  sender       User?             @relation("MessageSender", fields: [senderId], references: [id])
+  citations    MessageCitation[]
+  feedbacks    MessageFeedback[]
+  queryLogs    QueryLog[]
+
+  @@index([conversationId], map: "idx_messages_conversation_id")
+  @@index([conversationId, createdAt], map: "idx_messages_conversation_id_created_at")
+  @@map("messages")
+}
+
+////////////////////////////////////////////////
+// LEGAL SOURCES
+////////////////////////////////////////////////
+
+model LegalSource {
+  id            Int       @id @default(autoincrement())
+  code          String?
+  name          String
+  legalDomain   String    @map("legal_domain")
+  type          String?
+  effectiveDate DateTime? @map("effective_date")
+  expiredDate   DateTime? @map("expired_date")
+  sourceUrl     String?   @map("source_url")
+  uploadedById  Int?      @map("uploaded_by")
+
+  uploadedBy User?          @relation("LegalSourcesUploadedBy", fields: [uploadedById], references: [id])
+  articles   LegalArticle[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([legalDomain, code], map: "idx_legal_sources_domain_code")
+  @@map("legal_sources")
+}
+
+////////////////////////////////////////////////
+// LEGAL ARTICLES
+////////////////////////////////////////////////
+
+model LegalArticle {
+  id            Int      @id @default(autoincrement())
+  sourceId      Int      @map("source_id")
+  articleNumber String   @map("article_number")
+  clauseNumber  String?  @map("clause_number")
+  title         String?
+  content       String
+  tags          String[] @db.Text
+  isActive      Boolean  @default(true) @map("is_active")
+
+  source     LegalSource       @relation(fields: [sourceId], references: [id])
+  embeddings LawEmbedding[]
+  citations  MessageCitation[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([sourceId], map: "idx_legal_articles_source_id")
+  @@index([sourceId, articleNumber, clauseNumber], map: "idx_legal_articles_source_article_clause")
+  @@map("legal_articles")
+}
+
+////////////////////////////////////////////////
+// RAG EMBEDDINGS
+////////////////////////////////////////////////
+
+model LawEmbedding {
+  id         Int    @id @default(autoincrement())
+  articleId  Int    @map("article_id")
+  chunkIndex Int    @map("chunk_index")
+  chunkText  String @map("chunk_text")
+
+  article LegalArticle @relation(fields: [articleId], references: [id])
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@unique([articleId, chunkIndex], map: "uq_law_embeddings_article_chunk")
+  @@map("law_embeddings")
+}
+
+////////////////////////////////////////////////
+// CITATIONS
+////////////////////////////////////////////////
+
+model MessageCitation {
+  id         Int    @id @default(autoincrement())
+  messageId  Int    @map("message_id")
+  articleId  Int    @map("article_id")
+  chunkIndex Int?   @map("chunk_index")
+  rank       Int?
+  score      Float?
+
+  message Message      @relation(fields: [messageId], references: [id])
+  article LegalArticle @relation(fields: [articleId], references: [id])
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([messageId], map: "idx_message_citations_message_id")
+  @@index([articleId], map: "idx_message_citations_article_id")
+  @@map("message_citations")
+}
+
+////////////////////////////////////////////////
+// FEEDBACK
+////////////////////////////////////////////////
+
+model MessageFeedback {
+  id        Int     @id @default(autoincrement())
+  messageId Int     @map("message_id")
+  userId    Int     @map("user_id")
+  rating    String?
+  comment   String?
+
+  message Message @relation(fields: [messageId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([messageId], map: "idx_message_feedback_message_id")
+  @@index([userId], map: "idx_message_feedback_user_id")
+  @@map("message_feedback")
+}
+
+model ConversationFeedback {
+  id             Int     @id @default(autoincrement())
+  conversationId Int     @map("conversation_id")
+  userId         Int     @map("user_id")
+  rating         String?
+  comment        String?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([conversationId], map: "idx_conversation_feedback_conversation_id")
+  @@index([userId], map: "idx_conversation_feedback_user_id")
+  @@map("conversation_feedback")
+}
+
+////////////////////////////////////////////////
+// ADMIN LOGS
+////////////////////////////////////////////////
+
+model AdminLog {
+  id      Int    @id @default(autoincrement())
+  adminId Int    @map("admin_id")
+  action  String
+  details Json?
+
+  admin User @relation(fields: [adminId], references: [id])
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@map("admin_logs")
+}
+
+////////////////////////////////////////////////
+// QUERY LOGS
+////////////////////////////////////////////////
+
+model QueryLog {
+  id             Int     @id @default(autoincrement())
+  conversationId Int?    @map("conversation_id")
+  messageId      Int?    @map("message_id")
+  userId         Int?    @map("user_id")
+  rawQueryText   String  @map("raw_query_text")
+  intent         String?
+  intentMeta     Json?   @map("intent_meta")
+  successFlag    Boolean @default(false) @map("success_flag")
+
+  conversation Conversation? @relation(fields: [conversationId], references: [id])
+  message      Message?      @relation(fields: [messageId], references: [id])
+  user         User?         @relation(fields: [userId], references: [id])
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([userId], map: "idx_query_logs_user_id")
+  @@index([conversationId], map: "idx_query_logs_conversation_id")
+  @@index([messageId], map: "idx_query_logs_message_id")
+  @@map("query_logs")
+}

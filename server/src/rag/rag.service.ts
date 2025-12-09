@@ -1,13 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from 'libs/modules/config/config.service';
+import { PrismaService } from 'libs/modules/prisma/prisma.service';
 import OpenAI from 'openai';
-import { Repository } from 'typeorm';
 
-import { Knowledge } from '../knowledge/entities/knowledge.entity';
-
-interface RetrievalResult {
-  knowledge: Knowledge;
+export interface RetrievalResult {
+  articleId: number;
+  sourceId: number;
+  sourceName: string;
+  sourceUrl: string | null;
+  articleNumber: string;
+  clauseNumber: string | null;
+  title: string | null;
+  chunkIndex: number | null;
+  chunkText: string;
+  score?: number;
   promptContext: string;
 }
 
@@ -17,11 +23,15 @@ export class RagService {
   private readonly vectorDimension: number;
 
   constructor(
-    @InjectRepository(Knowledge) private readonly knowledgeRepo: Repository<Knowledge>,
-    configService: ConfigService,
+    private readonly prismaService: PrismaService,
+    private readonly configService: ConfigService,
   ) {
-    this.openai = new OpenAI({ apiKey: configService.get<string>('OPENAI_API_KEY') });
-    this.vectorDimension = Number(configService.get<string>('VECTOR_DIMENSION') ?? 1536);
+    this.openai = new OpenAI({
+      apiKey: this.configService.get<string>('OPENAI_API_KEY'),
+    });
+    this.vectorDimension = Number(
+      this.configService.get<string>('VECTOR_DIMENSION') ?? 1536,
+    );
   }
 
   async embed(text: string): Promise<number[]> {
@@ -35,25 +45,85 @@ export class RagService {
 
   async retrieve(query: string): Promise<RetrievalResult[]> {
     const queryVector = await this.embed(query);
-    const rows = await this.knowledgeRepo.query(
-      'SELECT * FROM knowledge ORDER BY embedding <-> $1 LIMIT 5',
-      [queryVector],
+
+    // Giả định law_embeddings có cột "embedding" kiểu vector
+    const rows = await this.prismaService.$queryRawUnsafe<
+      Array<{
+        article_id: number;
+        chunk_index: number | null;
+        chunk_text: string;
+        score: number;
+        article_number: string;
+        clause_number: string | null;
+        title: string | null;
+        source_id: number;
+        source_name: string;
+        source_url: string | null;
+      }>
+    >(
+      `
+      SELECT
+        le.article_id,
+        le.chunk_index,
+        le.chunk_text,
+        1 - (le.embedding <-> $1) AS score,
+        la.article_number,
+        la.clause_number,
+        la.title,
+        ls.id AS source_id,
+        ls.name AS source_name,
+        ls.source_url
+      FROM law_embeddings le
+      JOIN legal_articles la ON la.id = le.article_id
+      JOIN legal_sources ls ON ls.id = la.source_id
+      ORDER BY le.embedding <-> $1
+      LIMIT 5
+      `,
+      queryVector,
     );
-    return rows.map((row: Knowledge) => ({
-      knowledge: row,
-      promptContext: `Tiêu đề: ${row.title}\nNguồn: ${row.source ?? 'N/A'}\nĐiều luật: ${
-        row.article ?? 'N/A'
-      }\nNội dung: ${row.content}`,
-    }));
+
+    return rows.map((row, idx) => {
+      const lawRef = `Điều ${row.article_number}${row.clause_number ? `, Khoản ${row.clause_number}` : ''
+        }`;
+      const promptContext = [
+        `Nguồn: ${row.source_name} (${row.source_url ?? 'N/A'})`,
+        lawRef,
+        row.title ? `Tiêu đề: ${row.title}` : null,
+        `Đoạn trích: ${row.chunk_text}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      return {
+        articleId: row.article_id,
+        sourceId: row.source_id,
+        sourceName: row.source_name,
+        sourceUrl: row.source_url,
+        articleNumber: row.article_number,
+        clauseNumber: row.clause_number,
+        title: row.title,
+        chunkIndex: row.chunk_index,
+        chunkText: row.chunk_text,
+        score: row.score,
+        promptContext,
+      };
+    });
   }
 
-  async generateAnswer(question: string, contexts: RetrievalResult[]): Promise<string> {
+  async generateAnswer(
+    question: string,
+    contexts: RetrievalResult[],
+  ): Promise<string> {
     if (!contexts.length) {
       return 'Xin lỗi, tôi không tìm thấy căn cứ pháp lý phù hợp.';
     }
 
     const contextText = contexts
-      .map((c, idx) => `#${idx + 1} ${c.promptContext}\n`)
+      .map(
+        (c, idx) =>
+          `#${idx + 1} [${c.sourceName}] Điều ${c.articleNumber}${c.clauseNumber ? `, Khoản ${c.clauseNumber}` : ''
+          }\n${c.promptContext}\n`,
+      )
       .join('\n');
 
     const completion = await this.openai.chat.completions.create({
@@ -72,6 +142,9 @@ export class RagService {
       temperature: 0.2,
     });
 
-    return completion.choices[0]?.message?.content ?? 'Xin lỗi, tôi không tìm thấy căn cứ pháp lý phù hợp.';
+    return (
+      completion.choices[0]?.message?.content ??
+      'Xin lỗi, tôi không tìm thấy căn cứ pháp lý phù hợp.'
+    );
   }
 }

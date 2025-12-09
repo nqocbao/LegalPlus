@@ -1,12 +1,10 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-
-import { Knowledge } from '../knowledge/entities/knowledge.entity';
 import { RagService } from './rag.service';
+import { ConfigModule } from 'libs/modules/config/config.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Knowledge])],
+  imports: [ConfigModule],
   providers: [RagService],
   exports: [RagService],
 })
-export class RagModule {}
+export class RagModule { }
