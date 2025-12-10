@@ -195,7 +195,7 @@ model MessageFeedback {
   id        Int     @id @default(autoincrement())
   messageId Int     @map("message_id")
   userId    Int     @map("user_id")
-  rating    String?
+  rating    Int?
   comment   String?
 
   message Message @relation(fields: [messageId], references: [id])

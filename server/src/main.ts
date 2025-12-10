@@ -26,10 +26,10 @@ async function bootstrap() {
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document); // http://localhost:3000/api/docs
+  SwaggerModule.setup('docs', app, document); // http://localhost:3001/docs
 
   const configService = app.get(ConfigService);
-  const port = configService.get<number>('PORT') ?? 3000;
+  const port = configService.get<number>('PORT') ?? 3001;
 
   await app.listen(port);
   // eslint-disable-next-line no-console

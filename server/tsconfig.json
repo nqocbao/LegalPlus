@@ -20,7 +20,8 @@
   },
   "include": [
     "src/**/*.ts",
-    "libs/**/*.ts"
+    "libs/**/*.ts",
+    "prisma/**/*.ts",
   ],
   "exclude": [
     "node_modules",

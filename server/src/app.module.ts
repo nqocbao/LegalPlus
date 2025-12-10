@@ -5,6 +5,9 @@ import { ConfigService } from 'libs/modules/config/config.service';
 import { PrismaModule } from 'libs/modules/prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ChatModule } from './modules/chat/chat.module';
+import { UserModule } from './modules/user/user.module';
+import { KnowledgeModule } from './modules/knowledge/knowledge.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
 
 
 @Module({
@@ -27,6 +30,9 @@ import { ChatModule } from './modules/chat/chat.module';
     }),
     AuthModule,
     ChatModule,
+    UserModule,
+    KnowledgeModule,
+    FeedbackModule,
   ],
 })
 export class AppModule { }

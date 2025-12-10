@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from 'libs/modules/config/config.service';
 import { PrismaService } from 'libs/modules/prisma/prisma.service';
+import { RagHit } from 'libs/utils/enum';
 import OpenAI from 'openai';
 
 export interface RetrievalResult {
@@ -146,5 +147,59 @@ export class RagService {
       completion.choices[0]?.message?.content ??
       'Xin lỗi, tôi không tìm thấy căn cứ pháp lý phù hợp.'
     );
+  }
+
+  /**
+   * RAG retrieval đơn giản: dùng ILIKE trên chunk_text.
+   * Sau này có thể thay bằng vector search (pgvector / external vector DB).
+   */
+  async retrieveContext(
+    rawQuery: string,
+    legalDomain?: string,
+    limit = 10,
+  ): Promise<RagHit[]> {
+    if (!rawQuery?.trim()) return [];
+
+    const embeddings = await this.prismaService.lawEmbedding.findMany({
+      where: {
+        chunkText: {
+          contains: rawQuery,
+          mode: 'insensitive',
+        },
+        article: legalDomain
+          ? {
+            source: {
+              legalDomain,
+              deletedAt: null,
+            },
+          }
+          : {
+            source: {
+              deletedAt: null,
+            },
+          },
+      },
+      take: limit,
+      include: {
+        article: {
+          include: {
+            source: true,
+          },
+        },
+      },
+    });
+
+    // Giả lập score đơn giản = độ dài overlap (có thể thay bằng logic riêng)
+    const hits: RagHit[] = embeddings.map((e) => ({
+      articleId: e.articleId,
+      chunkIndex: e.chunkIndex,
+      score: 1, // placeholder
+      articleTitle: e.article.title,
+      articleNumber: e.article.articleNumber,
+      clauseNumber: e.article.clauseNumber,
+      chunkText: e.chunkText,
+    }));
+
+    return hits;
   }
 }

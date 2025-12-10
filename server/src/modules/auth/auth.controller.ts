@@ -3,8 +3,12 @@ import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './services/auth.service';
 import { UserRegisterDto } from './dto/register.dto';
 import { UserLoginDto } from './dto/login.dto';
+import { CoreControllers } from 'libs/utils/decorators/controller-customer.decorator';
 
-@Controller('auth')
+@CoreControllers({
+  path: 'auth',
+  tag: 'Auth',
+})
 export class AuthController {
   constructor(private readonly authService: AuthService) { }
 
