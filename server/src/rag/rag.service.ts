@@ -45,67 +45,52 @@ export class RagService {
   }
 
   async retrieve(query: string): Promise<RetrievalResult[]> {
-    const queryVector = await this.embed(query);
+    const rows = await this.prismaService.lawEmbedding.findMany({
+      where: {
+        chunkText: {
+          contains: query,
+          mode: 'insensitive',
+        },
+        article: {
+          source: {
+            deletedAt: null,
+          },
+        },
+      },
+      take: 5,
+      include: {
+        article: {
+          include: {
+            source: true,
+          },
+        },
+      },
+    });
 
-    // Giả định law_embeddings có cột "embedding" kiểu vector
-    const rows = await this.prismaService.$queryRawUnsafe<
-      Array<{
-        article_id: number;
-        chunk_index: number | null;
-        chunk_text: string;
-        score: number;
-        article_number: string;
-        clause_number: string | null;
-        title: string | null;
-        source_id: number;
-        source_name: string;
-        source_url: string | null;
-      }>
-    >(
-      `
-      SELECT
-        le.article_id,
-        le.chunk_index,
-        le.chunk_text,
-        1 - (le.embedding <-> $1) AS score,
-        la.article_number,
-        la.clause_number,
-        la.title,
-        ls.id AS source_id,
-        ls.name AS source_name,
-        ls.source_url
-      FROM law_embeddings le
-      JOIN legal_articles la ON la.id = le.article_id
-      JOIN legal_sources ls ON ls.id = la.source_id
-      ORDER BY le.embedding <-> $1
-      LIMIT 5
-      `,
-      queryVector,
-    );
-
-    return rows.map((row, idx) => {
-      const lawRef = `Điều ${row.article_number}${row.clause_number ? `, Khoản ${row.clause_number}` : ''
+    return rows.map((e) => {
+      const lawRef = `Điều ${e.article.articleNumber}${e.article.clauseNumber ? `, Khoản ${e.article.clauseNumber}` : ''
         }`;
+
       const promptContext = [
-        `Nguồn: ${row.source_name} (${row.source_url ?? 'N/A'})`,
+        `Nguồn: ${e.article.source.name} (${e.article.source.sourceUrl ?? 'N/A'})`,
         lawRef,
-        row.title ? `Tiêu đề: ${row.title}` : null,
-        `Đoạn trích: ${row.chunk_text}`,
+        e.article.title ? `Tiêu đề: ${e.article.title}` : null,
+        `Đoạn trích: ${e.chunkText}`,
       ]
         .filter(Boolean)
         .join('\n');
 
       return {
-        articleId: row.article_id,
-        sourceId: row.source_id,
-        sourceName: row.source_name,
-        sourceUrl: row.source_url,
-        articleNumber: row.article_number,
-        clauseNumber: row.clause_number,
-        title: row.title,
-        chunkIndex: row.chunk_index,
-        chunkText: row.chunk_text,
-        score: row.score,
+        articleId: e.articleId,
+        sourceId: e.article.sourceId,
+        sourceName: e.article.source.name,
+        sourceUrl: e.article.source.sourceUrl,
+        articleNumber: e.article.articleNumber,
+        clauseNumber: e.article.clauseNumber,
+        title: e.article.title,
+        chunkIndex: e.chunkIndex,
+        chunkText: e.chunkText,
+        score: 1,
         promptContext,
       };
     });

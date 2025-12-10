@@ -71,7 +71,7 @@ export class ConversationService {
       where.legalDomain = query.legalDomain;
     }
 
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.conversation.findMany({
         where,
         orderBy: {
