@@ -6,6 +6,7 @@ import { Role } from "libs/utils/enum";
 import { GetAllUsersDto } from "./dto/get-all-users.dto";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-uset.dto";
+import { UpdateProfileDto } from "./dto/update-profile.dto";
 
 @CoreControllers({
   path: 'users',
@@ -20,6 +21,12 @@ export class UserController {
   @Get('me')
   async getProfile() {
     return await this.userService.getProfile();
+  }
+
+  @Auth()
+  @Put('me')
+  async updateProfile(@Body() body: UpdateProfileDto) {
+    return await this.userService.updateProfile(body);
   }
 
   @Auth([Role.ADMIN])

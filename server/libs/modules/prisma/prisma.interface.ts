@@ -1,9 +1,5 @@
 import { ModuleMetadata, Type } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
-import {
-  DefaultArgs,
-  PrismaClientOptions,
-} from '@prisma/client/runtime/library';
 
 export interface PrismaModuleOptions {
   /**
@@ -20,7 +16,7 @@ export interface PrismaServiceOptions {
    * Pass options directly to the `PrismaClient`.
    * See: https://www.prisma.io/docs/reference/api-reference/prisma-client-reference/#prismaclient
    */
-  prismaOptions?: PrismaClientOptions;
+  prismaOptions?: Prisma.PrismaClientOptions;
 
   /**
    * If "true", `PrismaClient` explicitly creates a connection pool and your first query will respond instantly.
@@ -46,7 +42,4 @@ export interface PrismaModuleAsyncOptions
   inject?: any[];
 }
 
-export type PrismaTransaction = Omit<
-  PrismaClient<Prisma.PrismaClientOptions, never, DefaultArgs>,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
+export type PrismaTransaction = Prisma.TransactionClient;

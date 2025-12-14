@@ -20,13 +20,11 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
     }),
     PrismaModule.forRootAsync({
       isGlobal: true,
-      useFactory: () => {
-        return {
-          prismaOptions: {
-            log: ['error'],
-          },
-        };
-      },
+      useFactory: () => ({
+        prismaOptions: {
+          log: ['error'],
+        },
+      }),
     }),
     AuthModule,
     ChatModule,

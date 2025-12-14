@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   FileSignature,
   FileText,
@@ -39,26 +39,128 @@ const suggestedResults = [
 function ChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const { messages, addMessage } = useChatStore();
+  const [creatingConversation, setCreatingConversation] = useState(false);
+  const {
+    conversations,
+    currentConversationId,
+    createConversation,
+    addMessage,
+    setCurrentConversation,
+  } = useChatStore();
+  const useMockChat = (import.meta.env.VITE_USE_MOCK_CHAT ?? "false") === "true";
+  const endRef = useRef<HTMLDivElement | null>(null);
 
-  const history = useMemo(() => {
-    if (!messages.length) return [] as typeof messages;
-    return messages.slice(-3);
-  }, [messages]);
+  const currentConversation = useMemo(
+    () => conversations.find((c) => c.id === currentConversationId),
+    [conversations, currentConversationId],
+  );
+
+  const messages = currentConversation?.messages ?? [];
+
+  const history = useMemo(() => conversations.slice(-3).reverse(), [conversations]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length, currentConversationId]);
+
+  const mapRagToCitations = (ragContexts: any[] = []) =>
+    ragContexts.map((ctx, idx) => ({
+      knowledgeId: String(ctx.articleId ?? idx),
+      title: ctx.articleTitle ?? "Trích dẫn",
+      article: ctx.articleNumber
+        ? `Điều ${ctx.articleNumber}${ctx.clauseNumber ? ", Khoản " + ctx.clauseNumber : ""}`
+        : undefined,
+    }));
+
+  const handleStartNewConversation = async () => {
+    setCreatingConversation(true);
+    try {
+      if (useMockChat) {
+        createConversation();
+        setInput("");
+        return;
+      }
+
+      const res = await api.post("/chat/conversations", {
+        title: input ? input.slice(0, 80) : "Cuộc trò chuyện mới",
+      });
+      const conversation = res.data;
+      createConversation(
+        conversation?.title ?? input.slice(0, 80) ?? "Cuộc trò chuyện",
+        conversation?.id ? String(conversation.id) : undefined,
+        conversation?.createdAt ?? conversation?.startedAt,
+      );
+      setInput("");
+    } finally {
+      setCreatingConversation(false);
+    }
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
     setLoading(true);
     try {
-      const res = await api.post("/chat/ask", { question: input });
-      addMessage({
-        id: res.data.chatId ?? crypto.randomUUID(),
-        question: input,
-        answer: res.data.answer,
-        citations: res.data.citations,
-        createdAt: new Date().toISOString(),
+      let conversationId = currentConversationId;
+
+      if (!conversationId) {
+        if (useMockChat) {
+          conversationId = createConversation(input.slice(0, 80));
+        } else {
+          const resConversation = await api.post("/chat/conversations", {
+            title: input.slice(0, 80),
+          });
+          const created = resConversation.data;
+          conversationId = createConversation(
+            created?.title ?? input.slice(0, 80),
+            created?.id ? String(created.id) : undefined,
+            created?.createdAt ?? created?.startedAt,
+          );
+        }
+      }
+
+      if (useMockChat) {
+        addMessage(
+          {
+            id: crypto.randomUUID(),
+            question: input,
+            answer:
+              "Đây là phản hồi mock để bạn kiểm thử giao diện chat. Khi kết nối backend, câu trả lời sẽ được tạo từ AI và có trích dẫn pháp lý.",
+            citations: [
+              {
+                knowledgeId: "mock-1",
+                title: "Luật giao thông đường bộ 2008",
+                article: "Điều 9 - Quy tắc chung",
+              },
+            ],
+            createdAt: new Date().toISOString(),
+          },
+          conversationId,
+        );
+        setInput("");
+        return;
+      }
+
+      const res = await api.post(`/chat/conversations/${conversationId}/messages`, {
+        senderType: "USER",
+        content: input,
+        withRagContext: true,
       });
+
+      const { userMessage, assistantMessage, ragContexts, answer } = res.data ?? {};
+      const fallbackAnswer =
+        assistantMessage?.content ?? answer ?? "(Backend chưa nối AI - trả lời tạm thời)";
+
+      addMessage(
+        {
+          id: String(assistantMessage?.id ?? userMessage?.id ?? crypto.randomUUID()),
+          question: userMessage?.content ?? input,
+          answer: fallbackAnswer,
+          citations: mapRagToCitations(ragContexts),
+          createdAt: userMessage?.createdAt ?? new Date().toISOString(),
+        },
+        conversationId,
+      );
       setInput("");
     } finally {
       setLoading(false);
@@ -71,13 +173,15 @@ function ChatPage() {
         <CardContent className="p-4">
           <Button
             variant="outline"
+            onClick={handleStartNewConversation}
+            disabled={creatingConversation || loading}
             className="flex w-full items-center justify-between rounded-2xl border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-left text-slate-700 shadow-sm hover:border-primary/50 hover:bg-white"
           >
             <div className="flex items-center gap-2 font-medium">
               <MessageCircle className="h-5 w-5 text-primary" />
               Cuộc trò chuyện mới
             </div>
-            <Badge className="bg-primary/10 text-primary">Mới</Badge>
+            <Badge className="bg-primary/10 text-primary">{creatingConversation ? "Đang tạo" : "Mới"}</Badge>
           </Button>
 
           <div className="mt-4 space-y-2 text-sm">
@@ -120,57 +224,51 @@ function ChatPage() {
         </CardHeader>
 
         <CardContent className="pt-4">
-          <ScrollArea className="max-h-[calc(100vh-320px)] pr-1">
-            <div className="space-y-4">
+          <ScrollArea className="h-[calc(40vh)] pr-1">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
               {messages.length === 0 ? (
-                <Card className="border-slate-100 bg-slate-50">
-                  <CardContent className="p-4 text-slate-700">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-primary">
-                      <Sparkles className="h-4 w-4" />
-                      AI Luật
-                    </div>
-                    <p className="mt-2 leading-relaxed">
-                      Xin chào! Bạn có thể hỏi tôi về các quyền và nghĩa vụ của một cá nhân theo luật pháp Việt Nam. Ví dụ: "Xe máy va chạm ô tô, ai bồi thường?".
-                    </p>
-                  </CardContent>
-                </Card>
+                <div className="rounded-2xl bg-slate-50 p-4 text-slate-700 shadow-inner">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                    <Sparkles className="h-4 w-4" />
+                    AI Luật
+                  </div>
+                  <p className="mt-2 leading-relaxed">
+                    Xin chào! Bạn có thể hỏi tôi về các quyền và nghĩa vụ của một cá nhân theo luật pháp Việt Nam. Ví dụ: "Xe máy va chạm ô tô, ai bồi thường?".
+                  </p>
+                </div>
               ) : null}
 
-              {messages.map((msg) => (
-                <Card key={msg.id} className="border-slate-200 bg-white shadow-sm">
-                  <CardContent className="space-y-3 p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-sm font-semibold text-amber-700">
-                        BN
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-xs font-semibold uppercase text-slate-500">Bạn</p>
+              {messages.map((msg, idx) => {
+                const isUser = true;
+                return (
+                  <div key={msg.id} className="flex flex-col gap-2">
+                    <div className="flex justify-end">
+                      <div className="max-w-[85%] rounded-2xl bg-gradient-to-r from-amber-100 to-orange-50 px-4 py-3 shadow">
+                        <div className="flex items-center justify-between text-xs font-semibold uppercase text-amber-700">
+                          <span>Bạn</span>
+                          <span className="text-[10px] text-amber-600">#{idx + 1}</span>
+                        </div>
                         <p className="mt-1 text-slate-900">{msg.question}</p>
                       </div>
                     </div>
 
-                    <div className="flex items-start gap-3 rounded-xl bg-slate-50 p-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                        AI
-                      </div>
-                      <div className="flex-1">
+                    <div className="flex justify-start">
+                      <div className="max-w-[90%] rounded-2xl bg-white px-4 py-3 shadow border border-slate-100">
                         <div className="flex items-center gap-2 text-xs font-semibold uppercase text-primary">
                           <Sparkles className="h-4 w-4" /> AI Luật
                         </div>
                         <p className="mt-1 whitespace-pre-wrap leading-relaxed text-slate-800">{msg.answer}</p>
                         {msg.citations?.length ? (
-                          <Card className="mt-2 border-slate-200 bg-white">
-                            <CardContent className="p-2 text-xs text-slate-600">
-                              <p className="font-semibold text-primary">Trích dẫn</p>
-                              <ul className="mt-1 list-disc space-y-1 pl-4">
-                                {msg.citations.map((c) => (
-                                  <li key={c.knowledgeId}>
-                                    {c.title} {c.article ? `- ${c.article}` : ""}
-                                  </li>
-                                ))}
-                              </ul>
-                            </CardContent>
-                          </Card>
+                          <div className="mt-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-700 border border-slate-100">
+                            <p className="font-semibold text-primary">Trích dẫn</p>
+                            <ul className="mt-1 list-disc space-y-1 pl-4">
+                              {msg.citations.map((c) => (
+                                <li key={c.knowledgeId}>
+                                  {c.title} {c.article ? `- ${c.article}` : ""}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         ) : null}
                         <div className="mt-3 flex items-center gap-2 text-slate-400">
                           <ThumbsUp className="h-4 w-4" />
@@ -178,9 +276,10 @@ function ChatPage() {
                         </div>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
+                  </div>
+                );
+              })}
+              <div ref={endRef} />
             </div>
           </ScrollArea>
 
@@ -219,7 +318,7 @@ function ChatPage() {
 
       <Card className="bg-white/90">
         <CardContent className="p-4">
-          <Card className="border-slate-100 bg-slate-50">
+          <Card className="mt-4 border-slate-100 bg-slate-50">
             <CardContent className="p-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-800">Lịch sử trò chuyện</p>
@@ -229,14 +328,30 @@ function ChatPage() {
                 {history.length === 0 ? (
                   <p className="text-xs text-slate-500">Chưa có cuộc trò chuyện nào.</p>
                 ) : (
-                  history.map((msg) => (
-                    <Card key={msg.id} className="bg-white">
-                      <CardContent className="px-3 py-2">
-                        <p className="truncate font-medium text-slate-800">{msg.question}</p>
-                        <p className="text-xs text-slate-500">{new Date(msg.createdAt).toLocaleString()}</p>
-                      </CardContent>
-                    </Card>
-                  ))
+                  history.map((conv) => {
+                    const lastMsg = conv.messages.at(-1);
+                    return (
+                      <Card
+                        key={conv.id}
+                        className={`bg-white hover:border-primary/40 cursor-pointer ${
+                          conv.id === currentConversationId ? "border-primary/60" : "border-slate-200"
+                        }`}
+                        onClick={() => setCurrentConversation(conv.id)}
+                      >
+                        <CardContent className="px-3 py-2">
+                          <p className="truncate font-medium text-slate-800">
+                            {conv.title || lastMsg?.question || "Cuộc trò chuyện"}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {new Date(conv.createdAt).toLocaleString()} · {conv.messages.length} tin nhắn
+                          </p>
+                          {lastMsg ? (
+                            <p className="mt-1 line-clamp-2 text-xs text-slate-500">{lastMsg.answer}</p>
+                          ) : null}
+                        </CardContent>
+                      </Card>
+                    );
+                  })
                 )}
               </div>
             </CardContent>

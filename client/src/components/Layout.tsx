@@ -4,14 +4,14 @@ import { useAuthStore } from "../store/auth";
 import { Button } from "./ui/button";
 
 const navItems = [
-  { path: "/chat", label: "Chat" },
-  { path: "/history", label: "Lịch sử" },
-  { path: "/admin/knowledge", label: "Kiến thức" },
-  { path: "/profile", label: "Hồ sơ" },
+  { path: "/chat", label: "Chat", roles: ["user", "admin"] },
+  { path: "/history", label: "Lịch sử", roles: ["user", "admin"] },
+  { path: "/admin/knowledge", label: "Kiến thức", roles: ["admin"] },
+  { path: "/profile", label: "Hồ sơ", roles: ["user", "admin"] },
 ];
 
 function Layout({ children }: { children: React.ReactNode }) {
-  const { token, logout } = useAuthStore();
+  const { token, logout, role } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -27,19 +27,21 @@ function Layout({ children }: { children: React.ReactNode }) {
           LegalPlus AI
         </Link>
         <nav className="flex items-center gap-3 text-sm">
-          {navItems.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`rounded-full px-3 py-2 transition ${
-                location.pathname.startsWith(item.path)
-                  ? "bg-primary/10 text-primary"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {navItems
+            .filter((item) => (role ? item.roles.includes(role) : item.roles.includes("user")))
+            .map((item) => (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`rounded-full px-3 py-2 transition ${
+                  location.pathname.startsWith(item.path)
+                    ? "bg-primary/10 text-primary"
+                    : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
           {token ? (
             <Button
               onClick={handleLogout}

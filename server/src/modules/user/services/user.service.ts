@@ -7,6 +7,7 @@ import { assignPaging, returnPaging } from "libs/utils/helpers";
 import { CreateUserDto } from "../dto/create-user.dto";
 import { UpdateUserDto } from "../dto/update-uset.dto";
 import { generateHash } from "libs/utils/util";
+import { UpdateProfileDto } from "../dto/update-profile.dto";
 
 @Injectable()
 export class UserService {
@@ -37,6 +38,30 @@ export class UserService {
     }
 
     return foundUser;
+  }
+
+  async updateProfile(body: UpdateProfileDto) {
+    const authUser: User = ContextProvider.getAuthUser();
+    if (!authUser) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    const updated = await this.prismaService.user.update({
+      where: { id: authUser.id },
+      data: {
+        fullName: body.fullName ?? undefined,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return updated;
   }
 
   async getAllUsers(query: GetAllUsersDto) {

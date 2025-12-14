@@ -100,23 +100,41 @@ export class MessageService {
 
     const prompt = this.buildPrompt(dto.content, ragContexts);
 
-    const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.2,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Bạn là trợ lý pháp lý Việt Nam, có nhiệm vụ trả lời chính xác dựa trên căn cứ pháp lý được cung cấp.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-    });
+    // Fallback: nếu chưa cấu hình OpenAI thì trả lời tạm thời để FE vẫn nhận được phản hồi
+    const shouldCallOpenAI = Boolean(process.env.OPENAI_API_KEY);
+    const fallbackReply = (() => {
+      const firstHit = ragContexts?.[0];
+      const citeText = firstHit?.chunkText
+        ? `\n\nGợi ý từ căn cứ pháp lý:\n- Điều ${firstHit.articleNumber ?? ''}${firstHit.clauseNumber ? ', Khoản ' + firstHit.clauseNumber : ''}: ${firstHit.chunkText}`.trimEnd()
+        : '';
+      return `Hiện tại hệ thống AI chưa được bật, đây là trả lời mẫu.\nCâu hỏi của bạn: "${dto.content}"\nChúng tôi sẽ sớm cập nhật để trả lời tự động.${citeText ? '\n\n' + citeText : ''}`;
+    })();
+    let aiReply = fallbackReply;
 
-    const aiReply = completion.choices[0]?.message?.content ?? 'Xin lỗi, tôi chưa trả lời được.';
+    if (shouldCallOpenAI) {
+      try {
+        const completion = await this.openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          temperature: 0.2,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Bạn là trợ lý pháp lý Việt Nam, có nhiệm vụ trả lời chính xác dựa trên căn cứ pháp lý được cung cấp.',
+            },
+            {
+              role: 'user',
+              content: prompt,
+            },
+          ],
+        });
+
+        aiReply = completion.choices[0]?.message?.content ?? fallbackReply;
+      } catch (error) {
+        // Giữ aiReply fallback khi OpenAI lỗi hoặc chưa cấu hình
+        aiReply = fallbackReply;
+      }
+    }
 
     const assistantMessage = await this.prisma.message.create({
       data: {
