@@ -24,6 +24,19 @@ npm install
 npm run dev
 ```
 
+## Model setup
+```bash
+cd model
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# Linux/macOS:
+source .venv/bin/activate
+pip install -r requirements.txt
+python run.py
+```
+
+
 ## Environment
 - `VECTOR_DIMENSION=1536`
 - Retrieval: `ORDER BY embedding <-> query_vector ASC LIMIT 5`

@@ -15,8 +15,9 @@ export class ChatService {
     // 1. RAG retrieve từ luật
     const retrieval = await this.ragService.retrieve(dto.question);
 
-    // 2. Generate answer từ OpenAI
+    // 2. Generate answer từ FastAPI của local model
     const answer = await this.ragService.generateAnswer(dto.question, retrieval);
+    
 
     // 3. Tạo conversation
     const conversation = await this.prismaService.conversation.create({

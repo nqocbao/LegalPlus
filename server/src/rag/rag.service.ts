@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from 'libs/modules/config/config.service';
 import { PrismaService } from 'libs/modules/prisma/prisma.service';
 import { RagHit } from 'libs/utils/enum';
-import OpenAI from 'openai';
+import axios from 'axios';
+
 
 export interface RetrievalResult {
   articleId: number;
@@ -20,29 +21,29 @@ export interface RetrievalResult {
 
 @Injectable()
 export class RagService {
-  private readonly openai: OpenAI;
   private readonly vectorDimension: number;
+  private readonly localModelUrl: string;
 
   constructor(
     private readonly prismaService: PrismaService,
     private readonly configService: ConfigService,
   ) {
-    this.openai = new OpenAI({
-      apiKey: this.configService.get<string>('OPENAI_API_KEY'),
-    });
     this.vectorDimension = Number(
       this.configService.get<string>('VECTOR_DIMENSION') ?? 1536,
     );
+    this.localModelUrl =
+      this.configService.get<string>('LOCAL_MODEL_URL') ??
+      'http://localhost:8000/generate';
   }
 
-  async embed(text: string): Promise<number[]> {
-    const embedding = await this.openai.embeddings.create({
-      model: 'text-embedding-3-small',
-      input: text,
-      dimensions: this.vectorDimension,
-    });
-    return embedding.data[0]?.embedding ?? [];
-  }
+  // async embed(text: string): Promise<number[]> {
+  //   const embedding = await this.openai.embeddings.create({
+  //     model: 'text-embedding-3-small',
+  //     input: text,
+  //     dimensions: this.vectorDimension,
+  //   });
+  //   return embedding.data[0]?.embedding ?? [];
+  // }
 
   async retrieve(query: string): Promise<RetrievalResult[]> {
     const rows = await this.prismaService.lawEmbedding.findMany({
@@ -96,43 +97,42 @@ export class RagService {
     });
   }
 
-  async generateAnswer(
-    question: string,
-    contexts: RetrievalResult[],
-  ): Promise<string> {
-    if (!contexts.length) {
-      return 'Xin lỗi, tôi không tìm thấy căn cứ pháp lý phù hợp.';
+    async generateAnswer(
+      question: string,
+      contexts: RetrievalResult[],
+    ): Promise<string> {
+      if (!contexts.length) {
+        return 'Xin lỗi, tôi không tìm thấy căn cứ pháp lý phù hợp.';
+      }
+
+      const contextText = contexts
+        .map(
+          (c, idx) =>
+            `#${idx + 1} [${c.sourceName}] Điều ${c.articleNumber}${
+              c.clauseNumber ? `, Khoản ${c.clauseNumber}` : ''
+            }\n${c.promptContext}\n`,
+        )
+        .join('\n');
+
+      try {
+        const resp = await axios.post<{
+          answer: string;
+        }>(this.localModelUrl, {
+          question,
+          context: contextText,
+        });
+
+        const answer = resp.data?.answer?.trim();
+        if (!answer) {
+          return 'Xin lỗi, tôi không tìm thấy căn cứ pháp lý phù hợp.';
+        }
+        return answer;
+      } catch (e) {
+        // Có thể log chi tiết hơn
+        return 'Xin lỗi, đã xảy ra lỗi khi gọi mô hình tư vấn pháp lý.';
+      }
     }
 
-    const contextText = contexts
-      .map(
-        (c, idx) =>
-          `#${idx + 1} [${c.sourceName}] Điều ${c.articleNumber}${c.clauseNumber ? `, Khoản ${c.clauseNumber}` : ''
-          }\n${c.promptContext}\n`,
-      )
-      .join('\n');
-
-    const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Bạn là trợ lý pháp lý giao thông. Trả lời bằng tiếng Việt, trích dẫn điều luật cụ thể trong nội dung context. Nếu không có căn cứ, trả lời đúng mẫu yêu cầu.',
-        },
-        {
-          role: 'user',
-          content: `Câu hỏi: ${question}\n\nNgữ cảnh:\n${contextText}`,
-        },
-      ],
-      temperature: 0.2,
-    });
-
-    return (
-      completion.choices[0]?.message?.content ??
-      'Xin lỗi, tôi không tìm thấy căn cứ pháp lý phù hợp.'
-    );
-  }
 
   /**
    * RAG retrieval đơn giản: dùng ILIKE trên chunk_text.
