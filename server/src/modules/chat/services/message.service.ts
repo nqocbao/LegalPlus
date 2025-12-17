@@ -4,13 +4,10 @@ import { RagService } from 'src/rag/rag.service';
 import { SenderType, SendMessageDto } from '../dto/send-message.dto';
 import { GetMessagesDto } from '../dto/get-all-messages.dto';
 import { assignPaging, returnPaging } from 'libs/utils/helpers';
-import OpenAI from 'openai';
 
 @Injectable()
 export class MessageService {
-  private readonly openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
+  private readonly modelServiceUrl = process.env.MODEL_SERVICE_URL || 'http://localhost:8000';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -100,40 +97,30 @@ export class MessageService {
 
     const prompt = this.buildPrompt(dto.content, ragContexts);
 
-    // Fallback: nếu chưa cấu hình OpenAI thì trả lời tạm thời để FE vẫn nhận được phản hồi
-    const shouldCallOpenAI = Boolean(process.env.OPENAI_API_KEY);
-    const fallbackReply = (() => {
-      const firstHit = ragContexts?.[0];
-      const citeText = firstHit?.chunkText
-        ? `\n\nGợi ý từ căn cứ pháp lý:\n- Điều ${firstHit.articleNumber ?? ''}${firstHit.clauseNumber ? ', Khoản ' + firstHit.clauseNumber : ''}: ${firstHit.chunkText}`.trimEnd()
-        : '';
-      return `Hiện tại hệ thống AI chưa được bật, đây là trả lời mẫu.\nCâu hỏi của bạn: "${dto.content}"\nChúng tôi sẽ sớm cập nhật để trả lời tự động.${citeText ? '\n\n' + citeText : ''}`;
-    })();
-    let aiReply = fallbackReply;
+    let aiReply = 'Không thể kết nối đến model AI';
 
-    if (shouldCallOpenAI) {
-      try {
-        const completion = await this.openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          temperature: 0.2,
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Bạn là trợ lý pháp lý Việt Nam, có nhiệm vụ trả lời chính xác dựa trên căn cứ pháp lý được cung cấp.',
-            },
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-        });
+    try {
+      const contextText = ragContexts.map(c => 
+        `Điều ${c.articleNumber}${c.clauseNumber ? ', Khoản ' + c.clauseNumber : ''}: ${c.chunkText}`
+      ).join('\n\n');
 
-        aiReply = completion.choices[0]?.message?.content ?? fallbackReply;
-      } catch (error) {
-        // Giữ aiReply fallback khi OpenAI lỗi hoặc chưa cấu hình
-        aiReply = fallbackReply;
+      const response = await fetch(`${this.modelServiceUrl}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: dto.content,
+          context: contextText
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        aiReply = data.answer || 'Model không trả về câu trả lời';
+      } else {
+        aiReply = `Lỗi kết nối model (${response.status})`;
       }
+    } catch (error) {
+      aiReply = `Không thể kết nối đến model AI: ${error.message}`;
     }
 
     const assistantMessage = await this.prisma.message.create({

@@ -3,9 +3,18 @@ import { OpenAI } from "openai";
 
 @Injectable()
 export class EmbeddingHelper {
-  private readonly client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  private client: OpenAI | null = null;
+
+  constructor() {
+    if (process.env.OPENAI_API_KEY) {
+      this.client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    }
+  }
 
   async generateEmbedding(text: string): Promise<number[]> {
+    if (!this.client) {
+      throw new Error('OpenAI client not initialized. Set OPENAI_API_KEY if you need embedding generation.');
+    }
     const res = await this.client.embeddings.create({
       model: "text-embedding-3-small",
       input: text,

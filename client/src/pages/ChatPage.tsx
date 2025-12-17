@@ -147,15 +147,13 @@ function ChatPage() {
         withRagContext: true,
       });
 
-      const { userMessage, assistantMessage, ragContexts, answer } = res.data ?? {};
-      const fallbackAnswer =
-        assistantMessage?.content ?? answer ?? "(Backend chưa nối AI - trả lời tạm thời)";
-
+      const { userMessage, assistantMessage, ragContexts } = res.data ?? {};
+      
       addMessage(
         {
           id: String(assistantMessage?.id ?? userMessage?.id ?? crypto.randomUUID()),
           question: userMessage?.content ?? input,
-          answer: fallbackAnswer,
+          answer: assistantMessage?.content ?? "Không có phản hồi từ AI",
           citations: mapRagToCitations(ragContexts),
           createdAt: userMessage?.createdAt ?? new Date().toISOString(),
         },
