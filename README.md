@@ -25,14 +25,14 @@ npm run dev
 ```
 
 ## Model setup
-```bash
+```bash should use python 3.11.9
 cd model
 python -m venv .venv
 # Windows:
 .venv\Scripts\activate
 # Linux/macOS:
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
 python run.py
 ```
 
